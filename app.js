@@ -193,7 +193,13 @@ function writeCache(url, data, ttlMs) {
 }
 
 function isDesktopClient() {
-  return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+  const userAgent = navigator.userAgent || "";
+  const isMobileUa =
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(
+      userAgent,
+    );
+
+  return !isMobileUa && window.innerWidth >= 768;
 }
 
 function maybeShowUndercutPrompt() {
