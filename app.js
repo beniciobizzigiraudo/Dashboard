@@ -44,6 +44,8 @@ const elements = {
   loadButton: document.querySelector("#loadButton"),
   autoRefreshToggle: document.querySelector("#autoRefreshToggle"),
   preferUndercutToggle: document.querySelector("#preferUndercutToggle"),
+  preferUndercutRow: document.querySelector("#preferUndercutRow"),
+  undercutSourceCard: document.querySelector("#undercutSourceCard"),
 };
 
 const state = {
@@ -63,6 +65,7 @@ const state = {
 
 function init() {
   bindEvents();
+  configureRuntimeMode();
   updateRefreshModeLabel();
   maybeShowUndercutPrompt();
   loadDashboard();
@@ -122,12 +125,72 @@ function bindEvents() {
 
   elements.preferUndercutToggle.addEventListener("change", (event) => {
     state.preferUndercut = event.target.checked;
+    updateRefreshModeLabel();
+    startAutoRefresh();
     loadDashboard();
   });
 }
 
 function canUseLocalUndercut() {
-  return isDesktopClient();
+  return isLocalRuntime() && isDesktopClient();
+}
+
+function isLocalRuntime() {
+  const { protocol, hostname } = window.location;
+
+  return (
+    protocol === "file:" ||
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname === "[::1]"
+  );
+}
+
+function shouldUseUndercut() {
+  return canUseLocalUndercut() && state.preferUndercut;
+}
+
+function configureRuntimeMode() {
+  const localUndercutEnabled = canUseLocalUndercut();
+
+  elements.undercutPromptPanel.hidden = true;
+
+  if (elements.preferUndercutRow) {
+    elements.preferUndercutRow.hidden = !localUndercutEnabled;
+  }
+
+  if (elements.undercutSourceCard) {
+    elements.undercutSourceCard.hidden = !localUndercutEnabled;
+  }
+
+  if (!localUndercutEnabled) {
+    state.preferUndercut = false;
+    elements.preferUndercutToggle.checked = false;
+    elements.preferUndercutToggle.disabled = true;
+    return;
+  }
+
+  elements.preferUndercutToggle.disabled = false;
+  state.preferUndercut = elements.preferUndercutToggle.checked;
+}
+
+function getLoadingMessage() {
+  return shouldUseUndercut()
+    ? "Cargando OpenF1 y buscando timing local de undercut-f1..."
+    : "Cargando OpenF1 para tablero, campeonato y proximo evento...";
+}
+
+function getUndercutDisabledNote() {
+  if (!isLocalRuntime()) {
+    return "Deploy remoto: undercut-f1 deshabilitado.";
+  }
+
+  if (!isDesktopClient()) {
+    return "undercut local solo esta disponible en escritorio.";
+  }
+
+  return "Preferencia local desactivada.";
 }
 
 function getOpenF1CacheTtl(url) {
@@ -203,7 +266,7 @@ function isDesktopClient() {
 }
 
 function maybeShowUndercutPrompt() {
-  if (!isDesktopClient() || !canUseLocalUndercut() || state.undercutPromptDismissed) {
+  if (!canUseLocalUndercut() || state.undercutPromptDismissed) {
     return;
   }
 
@@ -232,7 +295,7 @@ function startAutoRefresh() {
     window.clearInterval(state.timerId);
   }
 
-  if (!state.autoRefresh || !canUseLocalUndercut()) {
+  if (!state.autoRefresh || !shouldUseUndercut()) {
     return;
   }
 
@@ -254,6 +317,11 @@ function updateRefreshModeLabel() {
     return;
   }
 
+  if (!isLocalRuntime()) {
+    elements.refreshMode.textContent = "Deploy remoto: solo OpenF1";
+    return;
+  }
+
   if (!canUseLocalUndercut()) {
     elements.refreshMode.textContent = "undercut local solo en escritorio";
     return;
@@ -261,7 +329,9 @@ function updateRefreshModeLabel() {
 
   elements.refreshMode.textContent = state.autoRefresh
     ? "Chequeo de undercut cada 15s"
-    : "Actualizacion manual";
+    : state.preferUndercut
+      ? "Actualizacion manual"
+      : "OpenF1 sin timing local";
 }
 
 function startNextEventCountdown() {
@@ -310,7 +380,7 @@ async function loadDashboard(options = {}) {
   state.isLoading = true;
 
   if (!silent) {
-    setMessage("Cargando OpenF1 y buscando timing local de undercut-f1...");
+    setMessage(getLoadingMessage());
     renderLoading();
   }
 
@@ -319,9 +389,9 @@ async function loadDashboard(options = {}) {
       await Promise.all([
         resolveStandingsSession(manualSessionKey),
         fetchNextEvent(),
-        state.preferUndercut
+        shouldUseUndercut()
           ? fetchUndercutTiming()
-          : disconnectedUndercut("Preferencia local desactivada."),
+          : disconnectedUndercut(getUndercutDisabledNote()),
       ]);
 
     setNextEvent(nextEvent);
@@ -932,7 +1002,9 @@ function renderSession(session, rows, undercut) {
   elements.driverCount.textContent = String(rows.length);
   elements.summaryNote.textContent = undercut.connected
     ? "Live timing local conectado"
-    : "Fallback OpenF1 activo";
+    : isLocalRuntime()
+      ? "Fallback OpenF1 activo"
+      : "OpenF1 historico activo";
 }
 
 function renderInactiveSession(session, championship, teamChampionship) {
@@ -1251,23 +1323,44 @@ function renderStandingsView(driverStandings, teamStandings, drivers) {
 function renderLoading() {
   elements.towerShell.hidden = false;
   elements.standingsShell.hidden = true;
-  elements.driversBoard.innerHTML =
-    '<div class="board-empty">Armando la grilla con OpenF1 y buscando timing local...</div>';
+  elements.driversBoard.innerHTML = `<div class="board-empty">${escapeHtml(
+    getLoadingMessage(),
+  )}</div>`;
 }
 
 function renderError(error) {
   state.mode = "standings";
   elements.openf1Status.textContent = "Error";
   elements.openf1Note.textContent = "No pude completar la carga de OpenF1.";
-  elements.undercutStatus.textContent = "Sin validar";
-  elements.undercutNote.textContent = "La carga principal fallo antes de usar el timing local.";
+  elements.undercutStatus.textContent = canUseLocalUndercut() ? "Sin validar" : "Deshabilitado";
+  elements.undercutNote.textContent = canUseLocalUndercut()
+    ? "La carga principal fallo antes de usar el timing local."
+    : getUndercutDisabledNote();
   elements.driverCount.textContent = "0";
   elements.summaryNote.textContent = "Revisa la session key o la conexion y vuelve a intentar.";
   setMessage(error.message ?? "Ocurrio un error inesperado.", "error");
-  elements.towerShell.hidden = false;
-  elements.standingsShell.hidden = true;
-  elements.driversBoard.innerHTML = `
-    <div class="board-empty">No pude cargar la torre. Revisa el mensaje y vuelve a intentar.</div>
+
+  if (state.lastData?.standingsSession) {
+    renderInactiveSession(
+      state.lastData.standingsSession,
+      state.lastData.standingsChampionship ?? [],
+      state.lastData.standingsTeamChampionship ?? [],
+    );
+    renderStandingsView(
+      state.lastData.standingsChampionship ?? [],
+      state.lastData.standingsTeamChampionship ?? [],
+      state.lastData.standingsDrivers ?? [],
+    );
+    return;
+  }
+
+  elements.towerShell.hidden = true;
+  elements.standingsShell.hidden = false;
+  elements.driversStandingsBody.innerHTML = `
+    <div class="board-empty">No pude cargar la tabla de pilotos. Revisa la conexion y vuelve a intentar.</div>
+  `;
+  elements.teamsStandingsBody.innerHTML = `
+    <div class="board-empty">No pude cargar la tabla de constructores. Revisa la conexion y vuelve a intentar.</div>
   `;
 }
 
