@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Grid Intel</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <button id="devMenuButton" class="dev-menu-button" type="button" aria-label="Menu desarrollador">
+      <span></span>
+      <span></span>
+      <span></span>
+    </button>
+
+    <div id="devAuthPanel" class="dev-auth-panel" hidden>
+      <div class="dev-auth-card">
+        <p class="sidebar-label">Acceso desarrollador</p>
+        <h3>Ingresar codigo</h3>
+        <input id="devCodeInput" type="password" placeholder="Codigo de desarrollador" />
+        <div class="dev-auth-actions">
+          <button id="devCodeSubmit" class="button button-primary" type="button">Entrar</button>
+          <button id="devCodeClose" class="button button-ghost" type="button">Cerrar</button>
+        </div>
+        <p id="devAuthMessage" class="dev-auth-message"></p>
+      </div>
+    </div>
+
+    <section id="devConsole" class="dev-console" hidden>
+      <div class="dev-console-head">
+        <div>
+          <p class="sidebar-label">Developer Console</p>
+          <strong>Comandos internos</strong>
+        </div>
+        <button id="devConsoleClose" class="button button-ghost" type="button">Ocultar</button>
+      </div>
+      <div id="devConsoleOutput" class="dev-console-output"></div>
+      <div class="dev-console-input-row">
+        <span class="dev-console-prompt">&gt;</span>
+        <input id="devConsoleInput" type="text" placeholder="switch-race | switch-standings" />
+      </div>
+    </section>
+
+    <div id="undercutPromptPanel" class="undercut-prompt-panel" hidden>
+      <div class="undercut-prompt-card">
+        <p class="sidebar-label">Live local</p>
+        <h3>Correr undercut-f1?</h3>
+        <p class="undercut-prompt-copy">
+          Si ya lo tenes abierto en esta PC, puedo intentar conectarme al timing live local.
+        </p>
+        <div class="dev-auth-actions">
+          <button id="undercutPromptYes" class="button button-primary" type="button">Si</button>
+          <button id="undercutPromptNo" class="button button-ghost" type="button">No</button>
+        </div>
+        <div id="undercutPromptHelp" class="undercut-prompt-help" hidden>
+          <p class="undercut-prompt-copy">
+            No encontre undercut-f1 en `localhost:61938`.
+          </p>
+          <ol class="undercut-help-steps">
+            <li>Abrilo en tu PC con <code>undercutf1 --with-api</code></li>
+            <li>Dejalo corriendo durante la sesion</li>
+            <li>Toca reintentar para volver a buscarlo</li>
+          </ol>
+          <button id="undercutPromptRetry" class="button button-primary" type="button">Reintentar</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand-block">
+          <div class="brand-mark">GI</div>
+          <div>
+            <p class="sidebar-label">Live Timing</p>
+            <h1 class="brand-title">Grid Intel</h1>
+          </div>
+        </div>
+
+        <nav class="sidebar-nav">
+          <a class="nav-item active" href="#">Dashboard</a>
+          <a class="nav-item" href="#">Track Map</a>
+          <a class="nav-item" href="#">Standings</a>
+          <a class="nav-item" href="#">Weather</a>
+        </nav>
+
+        <div class="sidebar-group">
+          <p class="sidebar-label">Control</p>
+          <div class="control-stack">
+            <label for="sessionKeyInput">Session key manual</label>
+            <input
+              id="sessionKeyInput"
+              name="sessionKeyInput"
+              type="text"
+              inputmode="numeric"
+              placeholder="Vacio = ultima carrera"
+            />
+            <button id="loadButton" class="button button-primary" type="button">
+              Recargar
+            </button>
+          </div>
+
+          <label class="toggle">
+            <input id="autoRefreshToggle" type="checkbox" checked />
+            <span>Auto refresh</span>
+          </label>
+
+          <label class="toggle">
+            <input id="preferUndercutToggle" type="checkbox" checked />
+            <span>Preferir undercut-f1</span>
+          </label>
+        </div>
+
+        <div class="sidebar-group">
+          <p class="sidebar-label">Fuentes</p>
+          <div class="source-card">
+            <span>OpenF1</span>
+            <strong id="openf1Status">Pendiente</strong>
+            <small id="openf1Note">Metadata y campeonato.</small>
+          </div>
+          <div class="source-card">
+            <span>undercut-f1</span>
+            <strong id="undercutStatus">Pendiente</strong>
+            <small id="undercutNote">Timing local y sectores live.</small>
+          </div>
+        </div>
+      </aside>
+
+      <main class="viewport">
+        <section class="session-bar">
+          <div class="session-main">
+            <div class="flag-tile">F1</div>
+            <div>
+              <p class="sidebar-label">Sesion activa</p>
+              <h2 id="sessionName">Buscando...</h2>
+              <p id="sessionLocation" class="session-subline">Sin resolver</p>
+            </div>
+          </div>
+
+          <div class="session-metrics">
+            <div class="metric-ring">
+              <span class="metric-value" id="driverCount">0</span>
+              <span class="metric-name">Pilotos</span>
+            </div>
+            <div class="metric-ring">
+              <span class="metric-value" id="nextEventCountdown">--:--</span>
+              <span class="metric-name" id="nextEventName">Proximo evento</span>
+            </div>
+            <div class="metric-summary">
+              <strong id="summaryNote">Esperando datos</strong>
+              <span id="nextEventMeta">Sin agenda confirmada</span>
+              <span id="refreshMode">Auto refresh cada 15s</span>
+              <span id="lastUpdated">Ultima actualizacion -</span>
+            </div>
+          </div>
+        </section>
+
+        <section id="towerShell" class="tower-shell">
+          <div id="messageBar" class="message-bar" hidden></div>
+
+          <header class="tower-header">
+            <span>Pos</span>
+            <span>Piloto</span>
+            <span>Escuderia</span>
+            <span>Ultima vuelta</span>
+            <span>Sectores</span>
+            <span>Champ</span>
+            <span>Si termina asi</span>
+          </header>
+
+          <div id="driversBoard" class="tower-board">
+            <div class="board-empty">Cargando datos del fin de semana...</div>
+          </div>
+        </section>
+
+        <section id="standingsShell" class="standings-shell" hidden>
+          <div class="standings-card">
+            <div class="standings-head">
+              <p class="sidebar-label">Championship</p>
+              <h3>Campeonato de pilotos</h3>
+            </div>
+            <div class="standings-table">
+              <div class="standings-row standings-row-head">
+                <span>Pos</span>
+                <span>Piloto</span>
+                <span>Escuderia</span>
+                <span>Puntos</span>
+              </div>
+              <div id="driversStandingsBody" class="standings-body"></div>
+            </div>
+          </div>
+
+          <div class="standings-card">
+            <div class="standings-head">
+              <p class="sidebar-label">Constructors</p>
+              <h3>Campeonato de constructores</h3>
+            </div>
+            <div class="standings-table">
+              <div class="standings-row standings-row-head standings-row-team">
+                <span>Pos</span>
+                <span>Escuderia</span>
+                <span>Puntos</span>
+              </div>
+              <div id="teamsStandingsBody" class="standings-body"></div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
