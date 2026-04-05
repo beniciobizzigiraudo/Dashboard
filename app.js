@@ -3,6 +3,7 @@ const UNDERCUT_BASE = "http://localhost:61938/data";
 const AUTO_REFRESH_MS = 15000;
 const SUSPENDED_APRIL_2026_ROUNDS = ["bahrain", "saudi arabia", "jeddah"];
 const DEV_ACCESS_KEY = "DevKey";
+const CACHE_PREFIX = "grid-intel-cache:";
 
 const elements = {
   undercutPromptPanel: document.querySelector("#undercutPromptPanel"),
@@ -127,6 +128,68 @@ function bindEvents() {
 
 function canUseLocalUndercut() {
   return isDesktopClient();
+}
+
+function getOpenF1CacheTtl(url) {
+  if (!url.startsWith(OPENF1_BASE)) {
+    return 0;
+  }
+
+  const pathname = new URL(url).pathname;
+
+  if (pathname.endsWith("/drivers")) return 1000 * 60 * 60 * 24;
+  if (pathname.endsWith("/championship_drivers")) return 1000 * 60 * 30;
+  if (pathname.endsWith("/championship_teams")) return 1000 * 60 * 30;
+  if (pathname.endsWith("/sessions")) return 1000 * 60 * 30;
+  if (pathname.endsWith("/meetings")) return 1000 * 60 * 30;
+  if (pathname.endsWith("/position")) return 1000 * 20;
+  if (pathname.endsWith("/laps")) return 1000 * 20;
+
+  return 1000 * 60 * 10;
+}
+
+function readCache(url, ttlMs) {
+  if (!ttlMs) {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(`${CACHE_PREFIX}${url}`);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!parsed?.timestamp || !("data" in parsed)) {
+      return null;
+    }
+
+    const ageMs = Date.now() - parsed.timestamp;
+    return {
+      isFresh: ageMs <= ttlMs,
+      data: parsed.data,
+    };
+  } catch (error) {
+    return null;
+  }
+}
+
+function writeCache(url, data, ttlMs) {
+  if (!ttlMs) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      `${CACHE_PREFIX}${url}`,
+      JSON.stringify({
+        timestamp: Date.now(),
+        data,
+      }),
+    );
+  } catch (error) {
+    // Si localStorage falla, seguimos sin cache.
+  }
 }
 
 function isDesktopClient() {
@@ -1209,13 +1272,34 @@ function setMessage(message, tone = "info") {
 }
 
 async function fetchJson(url) {
-  const response = await fetch(url);
+  const ttlMs = getOpenF1CacheTtl(url);
+  const cached = readCache(url, ttlMs);
 
-  if (!response.ok) {
-    throw new Error(`Fallo la consulta a ${url} (${response.status}).`);
+  if (cached?.isFresh) {
+    return cached.data;
   }
 
-  return response.json();
+  try {
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      if (cached?.data) {
+        return cached.data;
+      }
+
+      throw new Error(`Fallo la consulta a ${url} (${response.status}).`);
+    }
+
+    const data = await response.json();
+    writeCache(url, data, ttlMs);
+    return data;
+  } catch (error) {
+    if (cached?.data) {
+      return cached.data;
+    }
+
+    throw error;
+  }
 }
 
 async function fetchOptionalJson(url) {
