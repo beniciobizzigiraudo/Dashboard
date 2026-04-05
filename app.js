@@ -1,5 +1,6 @@
 ﻿const OPENF1_BASE = "https://api.openf1.org/v1";
 const UNDERCUT_BASE = "http://localhost:61938/data";
+const F1_API_BASES = ["https://f1api.dev/api", "https://f1connectapi.vercel.app/api"];
 const AUTO_REFRESH_MS = 15000;
 const SUSPENDED_APRIL_2026_ROUNDS = ["bahrain", "saudi arabia", "jeddah"];
 const DEV_ACCESS_KEY = "DevKey";
@@ -194,6 +195,14 @@ function getUndercutDisabledNote() {
 }
 
 function getOpenF1CacheTtl(url) {
+  if (F1_API_BASES.some((base) => url.startsWith(base))) {
+    if (url.includes("/current/")) {
+      return 1000 * 60 * 30;
+    }
+
+    return 1000 * 60 * 60 * 24 * 7;
+  }
+
   if (!url.startsWith(OPENF1_BASE)) {
     return 0;
   }
@@ -1044,14 +1053,14 @@ function unlockDeveloperConsole() {
   elements.devConsole.hidden = false;
   appendConsoleLine("Consola desbloqueada.", "system");
   appendConsoleLine(
-    "Comandos disponibles: switch-race, switch-standings, 2023...anio actual",
+    "Comandos disponibles: switch-race, switch-standings, 2023...anio actual, window(apellido)",
     "system",
   );
   elements.devConsoleInput.value = "";
   window.setTimeout(() => elements.devConsoleInput.focus(), 0);
 }
 
-function handleDeveloperCommand() {
+async function handleDeveloperCommand() {
   if (!state.developerUnlocked) {
     return;
   }
@@ -1096,6 +1105,12 @@ function handleDeveloperCommand() {
     return;
   }
 
+  const windowMatch = command.match(/^window\((.+)\)$/i);
+  if (windowMatch) {
+    await runDriverWindowCommand(windowMatch[1]);
+    return;
+  }
+
   appendConsoleLine("Comando no reconocido.", "error");
 }
 
@@ -1105,6 +1120,290 @@ function appendConsoleLine(message, tone = "") {
   line.textContent = message;
   elements.devConsoleOutput.appendChild(line);
   elements.devConsoleOutput.scrollTop = elements.devConsoleOutput.scrollHeight;
+}
+
+async function runDriverWindowCommand(rawQuery) {
+  const query = rawQuery.trim();
+  if (!query) {
+    appendConsoleLine("Usa window(apellido). Ejemplo: window(verstappen)", "error");
+    return;
+  }
+
+  appendConsoleLine(`Buscando ventana de carrera para ${query}...`, "system");
+
+  try {
+    const driver = await searchDriverCareerMatch(query);
+    const career = await buildDriverCareerWindow(driver);
+
+    appendConsoleLine(
+      `${career.fullName} (${career.shortName}) · ${career.firstSeason}-${career.lastSeason}`,
+      "system",
+    );
+    appendConsoleLine(`Podios: ${career.podiums}`);
+    appendConsoleLine(`Victorias: ${career.wins}`);
+    appendConsoleLine(`Ultima carrera: ${career.lastRaceResult}`);
+    appendConsoleLine(`Titulos mundiales: ${career.championships}`);
+    appendConsoleLine(`Temporadas en F1: ${career.seasons}`);
+  } catch (error) {
+    appendConsoleLine(error.message ?? "No pude calcular la ventana del piloto.", "error");
+  }
+}
+
+async function searchDriverCareerMatch(query) {
+  const payload = await fetchF1ApiJson(
+    `/drivers/search?q=${encodeURIComponent(query)}&limit=10`,
+  );
+  const matches = payload?.drivers ?? [];
+
+  if (!matches.length) {
+    throw new Error(`No encontre pilotos para "${query}".`);
+  }
+
+  const normalizedQuery = normalizeText(query);
+  const scored = matches
+    .map((driver) => ({
+      driver,
+      score: scoreDriverMatch(driver, normalizedQuery),
+    }))
+    .sort((left, right) => right.score - left.score);
+
+  const best = scored[0];
+  const second = scored[1];
+
+  if (second && best.score === second.score && best.score < 400) {
+    const options = scored
+      .slice(0, 3)
+      .map(({ driver }) => `${driver.name} ${driver.surname}`)
+      .join(", ");
+    throw new Error(`Encontre varios pilotos parecidos: ${options}. Usa un apellido mas especifico.`);
+  }
+
+  return best.driver;
+}
+
+function scoreDriverMatch(driver, normalizedQuery) {
+  const fullName = normalizeText(`${driver?.name ?? ""} ${driver?.surname ?? ""}`.trim());
+  const surname = normalizeText(driver?.surname ?? "");
+  const driverId = normalizeText(driver?.driverId ?? "");
+  const shortName = normalizeText(driver?.shortName ?? "");
+
+  if (surname === normalizedQuery) return 1000;
+  if (fullName === normalizedQuery) return 950;
+  if (driverId === normalizedQuery) return 900;
+  if (shortName === normalizedQuery) return 850;
+  if (surname.startsWith(normalizedQuery)) return 700;
+  if (fullName.startsWith(normalizedQuery)) return 650;
+  if (surname.includes(normalizedQuery)) return 500;
+  if (fullName.includes(normalizedQuery) || driverId.includes(normalizedQuery)) return 400;
+
+  return 0;
+}
+
+async function buildDriverCareerWindow(driver) {
+  const seasons = await collectDriverSeasonProfiles(driver.driverId);
+
+  if (!seasons.length) {
+    throw new Error(`No encontre temporadas cargadas para ${driver.name} ${driver.surname}.`);
+  }
+
+  const allResults = seasons.flatMap((season) => season.results);
+  const wins = allResults.filter((result) => extractRacePosition(result) === 1).length;
+  const podiums = allResults.filter((result) => {
+    const position = extractRacePosition(result);
+    return position !== null && position <= 3;
+  }).length;
+
+  const lastEntry = allResults
+    .slice()
+    .sort((left, right) => getRaceTimestamp(right) - getRaceTimestamp(left))[0];
+
+  const completedSeasonYears = seasons
+    .map((season) => season.year)
+    .filter((year) => year < new Date().getUTCFullYear());
+
+  const championshipYears = [];
+  for (const year of completedSeasonYears) {
+    const standing = await fetchDriverStandingForYear(year, driver);
+    if (standing && Number(standing.position) === 1) {
+      championshipYears.push(year);
+    }
+  }
+
+  return {
+    fullName: `${driver.name} ${driver.surname}`.trim(),
+    shortName: driver.shortName ?? driver.driverId ?? "DRV",
+    wins,
+    podiums,
+    championships: championshipYears.length,
+    seasons: seasons.length,
+    firstSeason: seasons[0].year,
+    lastSeason: seasons[seasons.length - 1].year,
+    lastRaceResult: formatLastRaceResult(lastEntry),
+  };
+}
+
+async function collectDriverSeasonProfiles(driverId) {
+  const currentYear = new Date().getUTCFullYear();
+  const seasons = [];
+  let foundAny = false;
+  let missingAfterCareer = 0;
+
+  for (let year = currentYear; year >= 1950; year -= 1) {
+    const payload = await fetchOptionalF1ApiJson(`/${year}/drivers/${driverId}`);
+    const results = normalizeDriverResultsPayload(payload);
+
+    if (results.length) {
+      seasons.push({
+        year,
+        results,
+      });
+      foundAny = true;
+      missingAfterCareer = 0;
+      continue;
+    }
+
+    if (foundAny) {
+      missingAfterCareer += 1;
+      if (missingAfterCareer >= 5) {
+        break;
+      }
+    }
+  }
+
+  return seasons.sort((left, right) => left.year - right.year);
+}
+
+function normalizeDriverResultsPayload(payload) {
+  const candidates = [
+    payload?.results,
+    payload?.raceResults,
+    payload?.races,
+    payload?.driver?.results,
+    payload?.data?.results,
+  ];
+
+  const rawResults = candidates.find(Array.isArray) ?? [];
+  return rawResults.filter(Boolean);
+}
+
+async function fetchDriverStandingForYear(year, driver) {
+  const payload = await fetchOptionalF1ApiJson(`/${year}/drivers-championship`);
+  const candidates = [
+    payload?.drivers_championship,
+    payload?.driversChampionship,
+    payload?.standings,
+    payload?.drivers,
+    payload?.data,
+  ];
+  const standings = candidates.find(Array.isArray) ?? [];
+  const normalizedDriverId = normalizeText(driver?.driverId ?? "");
+  const normalizedFullName = normalizeText(`${driver?.name ?? ""} ${driver?.surname ?? ""}`.trim());
+  const normalizedSurname = normalizeText(driver?.surname ?? "");
+
+  return (
+    standings.find((entry) => {
+      const entryDriverId = normalizeText(entry?.driverId ?? "");
+      const entryFullName = normalizeText(
+        `${entry?.driver?.name ?? ""} ${entry?.driver?.surname ?? ""}`.trim(),
+      );
+      const entrySurname = normalizeText(entry?.driver?.surname ?? "");
+
+      return (
+        entryDriverId === normalizedDriverId ||
+        entryFullName === normalizedFullName ||
+        entrySurname === normalizedSurname
+      );
+    }) ??
+    null
+  );
+}
+
+async function fetchF1ApiJson(path) {
+  let lastError = null;
+
+  for (const base of F1_API_BASES) {
+    try {
+      return await fetchJson(`${base}${path}`);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError ?? new Error("No pude conectar con la API historica de pilotos.");
+}
+
+async function fetchOptionalF1ApiJson(path) {
+  try {
+    return await fetchF1ApiJson(path);
+  } catch (error) {
+    return null;
+  }
+}
+
+function extractRacePosition(result) {
+  const numeric = Number(
+    result?.result?.finishingPosition ??
+      result?.position ??
+      result?.classificationPosition ??
+      result?.finishPosition,
+  );
+
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+function getRaceTimestamp(result) {
+  const rawDate =
+    result?.race?.date ??
+    result?.date ??
+    result?.raceDate ??
+    result?.race?.date ??
+    result?.race?.raceDate ??
+    result?.scheduled ??
+    "";
+
+  const parsed = new Date(rawDate);
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+}
+
+function formatLastRaceResult(result) {
+  if (!result) {
+    return "Sin resultado disponible";
+  }
+
+  const position = extractRacePosition(result);
+  const raceName =
+    result?.race?.name ??
+    result?.raceName ??
+    result?.race?.raceName ??
+    result?.grandPrix ??
+    result?.race?.grandPrix ??
+    "Carrera";
+  const year =
+    result?.season ??
+    result?.year ??
+    result?.race?.season ??
+    new Date(getRaceTimestamp(result)).getUTCFullYear();
+
+  if (position !== null) {
+    return `${raceName} ${year}: P${position}`;
+  }
+
+  const status =
+    (result?.result?.retired ? "DNF" : null) ??
+    result?.status ??
+    result?.raceStatus ??
+    result?.result?.status ??
+    (result?.retired ? "DNF" : "Sin clasificar");
+
+  return `${raceName} ${year}: ${status}`;
+}
+
+function normalizeText(value) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }
 
 function applyForcedModeIfNeeded() {
