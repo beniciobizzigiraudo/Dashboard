@@ -72,6 +72,37 @@ a {
   background: #fff;
 }
 
+.dev-menu-panel {
+  position: fixed;
+  top: 62px;
+  left: 12px;
+  z-index: 31;
+  width: 220px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 100%), var(--panel);
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 6px;
+}
+
+.dev-menu-item {
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  color: #eef2fb;
+  background: #171c25;
+  cursor: pointer;
+}
+
+.dev-menu-item:hover {
+  background: #212734;
+}
+
 .dev-auth-panel {
   position: fixed;
   inset: 0;
@@ -167,6 +198,11 @@ a {
   padding: 14px;
 }
 
+.public-console {
+  top: 62px;
+  left: 244px;
+}
+
 .dev-console-head {
   display: flex;
   justify-content: space-between;
@@ -211,6 +247,73 @@ a {
   font-family: Consolas, "Courier New", monospace;
   color: var(--green);
   font-weight: 700;
+}
+
+.driver-window-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 34;
+  pointer-events: none;
+}
+
+.driver-window-card {
+  position: fixed;
+  top: 96px;
+  left: min(360px, calc(100vw - 460px));
+  width: min(420px, calc(100vw - 24px));
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 100%), var(--panel);
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+}
+
+.driver-window-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+  margin-bottom: 10px;
+  cursor: move;
+}
+
+.driver-window-meta {
+  margin: 0 0 14px;
+  color: var(--muted);
+}
+
+.driver-window-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.driver-window-stat,
+.driver-window-result {
+  padding: 12px;
+  border-radius: 12px;
+  background: #121720;
+  border: 1px solid var(--line);
+}
+
+.driver-window-result {
+  margin-top: 10px;
+}
+
+.driver-window-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.driver-window-stat strong,
+.driver-window-result strong {
+  font-size: 1.35rem;
+  line-height: 1.2;
 }
 
 .shell {

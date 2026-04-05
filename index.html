@@ -13,6 +13,15 @@
       <span></span>
     </button>
 
+    <div id="devMenuPanel" class="dev-menu-panel" hidden>
+      <button id="publicConsoleButton" class="dev-menu-item" type="button">
+        Consola publica
+      </button>
+      <button id="developerAccessButton" class="dev-menu-item" type="button">
+        Acceso desarrollador
+      </button>
+    </div>
+
     <div id="devAuthPanel" class="dev-auth-panel" hidden>
       <div class="dev-auth-card">
         <p class="sidebar-label">Acceso desarrollador</p>
@@ -43,6 +52,60 @@
           placeholder="switch-race | 2023 | window(verstappen)"
         />
       </div>
+    </section>
+
+    <section id="publicConsole" class="dev-console public-console" hidden>
+      <div class="dev-console-head">
+        <div>
+          <p class="sidebar-label">Consola publica</p>
+          <strong>Temporadas y pilotos</strong>
+        </div>
+        <button id="publicConsoleClose" class="button button-ghost" type="button">Ocultar</button>
+      </div>
+      <div id="publicConsoleOutput" class="dev-console-output"></div>
+      <div class="dev-console-input-row">
+        <span class="dev-console-prompt">&gt;</span>
+        <input
+          id="publicConsoleInput"
+          type="text"
+          placeholder="2023 | window(verstappen)"
+        />
+      </div>
+    </section>
+
+    <section id="driverWindowPanel" class="driver-window-panel" hidden>
+      <article id="driverWindowCard" class="driver-window-card">
+        <div id="driverWindowHandle" class="driver-window-head">
+          <div>
+            <p class="sidebar-label">Driver Window</p>
+            <strong id="driverWindowName">Piloto</strong>
+          </div>
+          <button id="driverWindowClose" class="button button-ghost" type="button">Cerrar</button>
+        </div>
+        <p id="driverWindowMeta" class="driver-window-meta">Cargando datos...</p>
+        <div class="driver-window-grid">
+          <div class="driver-window-stat">
+            <span class="driver-window-label">Podios</span>
+            <strong id="driverWindowPodiums">--</strong>
+          </div>
+          <div class="driver-window-stat">
+            <span class="driver-window-label">Victorias</span>
+            <strong id="driverWindowWins">--</strong>
+          </div>
+          <div class="driver-window-stat">
+            <span class="driver-window-label">Titulos</span>
+            <strong id="driverWindowTitles">--</strong>
+          </div>
+          <div class="driver-window-stat">
+            <span class="driver-window-label">Temporadas</span>
+            <strong id="driverWindowSeasons">--</strong>
+          </div>
+        </div>
+        <div class="driver-window-result">
+          <span class="driver-window-label">Ultima carrera</span>
+          <strong id="driverWindowLastRace">--</strong>
+        </div>
+      </article>
     </section>
 
     <div id="undercutPromptPanel" class="undercut-prompt-panel" hidden>

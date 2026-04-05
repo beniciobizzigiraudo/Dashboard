@@ -13,6 +13,9 @@ const elements = {
   undercutPromptRetry: document.querySelector("#undercutPromptRetry"),
   undercutPromptHelp: document.querySelector("#undercutPromptHelp"),
   devMenuButton: document.querySelector("#devMenuButton"),
+  devMenuPanel: document.querySelector("#devMenuPanel"),
+  publicConsoleButton: document.querySelector("#publicConsoleButton"),
+  developerAccessButton: document.querySelector("#developerAccessButton"),
   devAuthPanel: document.querySelector("#devAuthPanel"),
   devCodeInput: document.querySelector("#devCodeInput"),
   devCodeSubmit: document.querySelector("#devCodeSubmit"),
@@ -22,6 +25,21 @@ const elements = {
   devConsoleClose: document.querySelector("#devConsoleClose"),
   devConsoleOutput: document.querySelector("#devConsoleOutput"),
   devConsoleInput: document.querySelector("#devConsoleInput"),
+  publicConsole: document.querySelector("#publicConsole"),
+  publicConsoleClose: document.querySelector("#publicConsoleClose"),
+  publicConsoleOutput: document.querySelector("#publicConsoleOutput"),
+  publicConsoleInput: document.querySelector("#publicConsoleInput"),
+  driverWindowPanel: document.querySelector("#driverWindowPanel"),
+  driverWindowCard: document.querySelector("#driverWindowCard"),
+  driverWindowHandle: document.querySelector("#driverWindowHandle"),
+  driverWindowClose: document.querySelector("#driverWindowClose"),
+  driverWindowName: document.querySelector("#driverWindowName"),
+  driverWindowMeta: document.querySelector("#driverWindowMeta"),
+  driverWindowPodiums: document.querySelector("#driverWindowPodiums"),
+  driverWindowWins: document.querySelector("#driverWindowWins"),
+  driverWindowTitles: document.querySelector("#driverWindowTitles"),
+  driverWindowSeasons: document.querySelector("#driverWindowSeasons"),
+  driverWindowLastRace: document.querySelector("#driverWindowLastRace"),
   sessionName: document.querySelector("#sessionName"),
   sessionLocation: document.querySelector("#sessionLocation"),
   lastUpdated: document.querySelector("#lastUpdated"),
@@ -62,6 +80,8 @@ const state = {
   lastData: null,
   undercutPromptDismissed: false,
   selectedSeasonYear: null,
+  activeDriverWindow: null,
+  driverWindowDrag: null,
 };
 
 function init() {
@@ -74,6 +94,9 @@ function init() {
 }
 
 function bindEvents() {
+  elements.devMenuButton.addEventListener("click", toggleDeveloperMenu);
+  elements.publicConsoleButton.addEventListener("click", openPublicConsole);
+  elements.developerAccessButton.addEventListener("click", openDeveloperPrompt);
   elements.undercutPromptYes.addEventListener("click", () => {
     tryUndercutPromptConnection();
   });
@@ -82,7 +105,6 @@ function bindEvents() {
     tryUndercutPromptConnection();
   });
 
-  elements.devMenuButton.addEventListener("click", openDeveloperPrompt);
   elements.devAuthPanel.addEventListener("click", (event) => {
     if (event.target === elements.devAuthPanel) {
       closeDeveloperPrompt();
@@ -93,6 +115,9 @@ function bindEvents() {
   elements.devConsoleClose.addEventListener("click", () => {
     elements.devConsole.hidden = true;
   });
+  elements.publicConsoleClose.addEventListener("click", () => {
+    elements.publicConsole.hidden = true;
+  });
   elements.devCodeInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       unlockDeveloperConsole();
@@ -100,13 +125,34 @@ function bindEvents() {
   });
   elements.devConsoleInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
-      handleDeveloperCommand();
+      handleConsoleCommand("private");
     }
   });
+  elements.publicConsoleInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      handleConsoleCommand("public");
+    }
+  });
+  elements.driverWindowClose.addEventListener("click", closeDriverWindow);
+  elements.driverWindowHandle.addEventListener("pointerdown", startDriverWindowDrag);
+  window.addEventListener("pointermove", moveDriverWindow);
+  window.addEventListener("pointerup", stopDriverWindowDrag);
+  window.addEventListener("pointercancel", stopDriverWindowDrag);
+  document.addEventListener("click", handleGlobalClick);
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
+      closeDeveloperMenu();
       if (!elements.devAuthPanel.hidden) {
         closeDeveloperPrompt();
+      }
+      if (!elements.publicConsole.hidden) {
+        elements.publicConsole.hidden = true;
+      }
+      if (!elements.devConsole.hidden) {
+        elements.devConsole.hidden = true;
+      }
+      if (!elements.driverWindowPanel.hidden) {
+        closeDriverWindow();
       }
     }
   });
@@ -1031,7 +1077,40 @@ function renderInactiveSession(session, championship, teamChampionship) {
   elements.summaryNote.textContent = `${teamChampionship.length || 0} escuderias en tabla`;
 }
 
+function toggleDeveloperMenu() {
+  elements.devMenuPanel.hidden = !elements.devMenuPanel.hidden;
+}
+
+function closeDeveloperMenu() {
+  elements.devMenuPanel.hidden = true;
+}
+
+function handleGlobalClick(event) {
+  if (
+    !elements.devMenuPanel.hidden &&
+    event.target !== elements.devMenuButton &&
+    !elements.devMenuButton.contains(event.target) &&
+    !elements.devMenuPanel.contains(event.target)
+  ) {
+    closeDeveloperMenu();
+  }
+}
+
+function openPublicConsole() {
+  closeDeveloperMenu();
+  elements.publicConsole.hidden = false;
+  if (!elements.publicConsoleOutput.childElementCount) {
+    appendConsoleLineTo(
+      elements.publicConsoleOutput,
+      "Comandos disponibles: 2023...anio actual, window(apellido)",
+      "system",
+    );
+  }
+  window.setTimeout(() => elements.publicConsoleInput.focus(), 0);
+}
+
 function openDeveloperPrompt() {
+  closeDeveloperMenu();
   elements.devAuthPanel.hidden = false;
   elements.devAuthMessage.textContent = "";
   elements.devCodeInput.value = "";
@@ -1060,31 +1139,33 @@ function unlockDeveloperConsole() {
   window.setTimeout(() => elements.devConsoleInput.focus(), 0);
 }
 
-async function handleDeveloperCommand() {
-  if (!state.developerUnlocked) {
+async function handleConsoleCommand(scope) {
+  if (scope === "private" && !state.developerUnlocked) {
     return;
   }
 
-  const command = elements.devConsoleInput.value.trim();
+  const input = scope === "private" ? elements.devConsoleInput : elements.publicConsoleInput;
+  const output = scope === "private" ? elements.devConsoleOutput : elements.publicConsoleOutput;
+  const command = input.value.trim();
   if (!command) {
     return;
   }
 
-  appendConsoleLine(`> ${command}`);
-  elements.devConsoleInput.value = "";
+  appendConsoleLineTo(output, `> ${command}`);
+  input.value = "";
 
-  if (command === "switch-race") {
+  if (scope === "private" && command === "switch-race") {
     state.selectedSeasonYear = null;
     state.forcedMode = "live";
-    appendConsoleLine("Modo carrera forzado.", "system");
+    appendConsoleLineTo(output, "Modo carrera forzado.", "system");
     applyForcedModeIfNeeded();
     return;
   }
 
-  if (command === "switch-standings") {
+  if (scope === "private" && command === "switch-standings") {
     state.selectedSeasonYear = null;
     state.forcedMode = "standings";
-    appendConsoleLine("Modo standings forzado.", "system");
+    appendConsoleLineTo(output, "Modo standings forzado.", "system");
     applyForcedModeIfNeeded();
     return;
   }
@@ -1094,59 +1175,107 @@ async function handleDeveloperCommand() {
     const currentYear = new Date().getUTCFullYear();
 
     if (year < 2023 || year > currentYear) {
-      appendConsoleLine(`Ano invalido. Usa un ano entre 2023 y ${currentYear}.`, "error");
+      appendConsoleLineTo(output, `Ano invalido. Usa un ano entre 2023 y ${currentYear}.`, "error");
       return;
     }
 
     state.selectedSeasonYear = year;
     state.forcedMode = "standings";
-    appendConsoleLine(`Cargando temporada ${year}...`, "system");
+    appendConsoleLineTo(output, `Cargando temporada ${year}...`, "system");
     loadDashboard({ silent: true });
     return;
   }
 
   const windowMatch = command.match(/^window\((.+)\)$/i);
   if (windowMatch) {
-    await runDriverWindowCommand(windowMatch[1]);
+    await runDriverWindowCommand(windowMatch[1], output);
     return;
   }
 
-  appendConsoleLine("Comando no reconocido.", "error");
+  appendConsoleLineTo(output, "Comando no reconocido.", "error");
 }
 
 function appendConsoleLine(message, tone = "") {
+  appendConsoleLineTo(elements.devConsoleOutput, message, tone);
+}
+
+function appendConsoleLineTo(target, message, tone = "") {
   const line = document.createElement("div");
   line.className = `dev-console-line${tone ? ` ${tone}` : ""}`;
   line.textContent = message;
-  elements.devConsoleOutput.appendChild(line);
-  elements.devConsoleOutput.scrollTop = elements.devConsoleOutput.scrollHeight;
+  target.appendChild(line);
+  target.scrollTop = target.scrollHeight;
 }
 
-async function runDriverWindowCommand(rawQuery) {
+async function runDriverWindowCommand(rawQuery, output = elements.devConsoleOutput) {
   const query = rawQuery.trim();
   if (!query) {
-    appendConsoleLine("Usa window(apellido). Ejemplo: window(verstappen)", "error");
+    appendConsoleLineTo(output, "Usa window(apellido). Ejemplo: window(verstappen)", "error");
     return;
   }
 
-  appendConsoleLine(`Buscando ventana de carrera para ${query}...`, "system");
+  appendConsoleLineTo(output, `Buscando ventana de carrera para ${query}...`, "system");
 
   try {
     const driver = await searchDriverCareerMatch(query);
     const career = await buildDriverCareerWindow(driver);
-
-    appendConsoleLine(
-      `${career.fullName} (${career.shortName}) · ${career.firstSeason}-${career.lastSeason}`,
-      "system",
-    );
-    appendConsoleLine(`Podios: ${career.podiums}`);
-    appendConsoleLine(`Victorias: ${career.wins}`);
-    appendConsoleLine(`Ultima carrera: ${career.lastRaceResult}`);
-    appendConsoleLine(`Titulos mundiales: ${career.championships}`);
-    appendConsoleLine(`Temporadas en F1: ${career.seasons}`);
+    openDriverWindow(career);
+    appendConsoleLineTo(output, `Ventana abierta para ${career.fullName}.`, "system");
   } catch (error) {
-    appendConsoleLine(error.message ?? "No pude calcular la ventana del piloto.", "error");
+    appendConsoleLineTo(output, error.message ?? "No pude calcular la ventana del piloto.", "error");
   }
+}
+
+function openDriverWindow(career) {
+  state.activeDriverWindow = career;
+  elements.driverWindowName.textContent = career.fullName;
+  elements.driverWindowMeta.textContent = `${career.shortName} · ${career.firstSeason}-${career.lastSeason}`;
+  elements.driverWindowPodiums.textContent = String(career.podiums);
+  elements.driverWindowWins.textContent = String(career.wins);
+  elements.driverWindowTitles.textContent = String(career.championships);
+  elements.driverWindowSeasons.textContent = String(career.seasons);
+  elements.driverWindowLastRace.textContent = career.lastRaceResult;
+  elements.driverWindowPanel.hidden = false;
+  elements.driverWindowCard.style.top = "96px";
+  const preferredLeft = Math.round(window.innerWidth * 0.32);
+  const maxLeft = Math.max(12, window.innerWidth - elements.driverWindowCard.offsetWidth - 12);
+  elements.driverWindowCard.style.left = `${clamp(preferredLeft, 12, maxLeft)}px`;
+}
+
+function closeDriverWindow() {
+  state.activeDriverWindow = null;
+  elements.driverWindowPanel.hidden = true;
+}
+
+function startDriverWindowDrag(event) {
+  if (event.target.closest("button")) {
+    return;
+  }
+
+  const rect = elements.driverWindowCard.getBoundingClientRect();
+  state.driverWindowDrag = {
+    offsetX: event.clientX - rect.left,
+    offsetY: event.clientY - rect.top,
+  };
+  elements.driverWindowHandle.setPointerCapture?.(event.pointerId);
+}
+
+function moveDriverWindow(event) {
+  if (!state.driverWindowDrag || elements.driverWindowPanel.hidden) {
+    return;
+  }
+
+  const maxLeft = Math.max(12, window.innerWidth - elements.driverWindowCard.offsetWidth - 12);
+  const maxTop = Math.max(12, window.innerHeight - elements.driverWindowCard.offsetHeight - 12);
+  const left = clamp(event.clientX - state.driverWindowDrag.offsetX, 12, maxLeft);
+  const top = clamp(event.clientY - state.driverWindowDrag.offsetY, 12, maxTop);
+
+  elements.driverWindowCard.style.left = `${left}px`;
+  elements.driverWindowCard.style.top = `${top}px`;
+}
+
+function stopDriverWindowDrag() {
+  state.driverWindowDrag = null;
 }
 
 async function searchDriverCareerMatch(query) {
@@ -1805,6 +1934,10 @@ function pickFirstValue(...values) {
   }
 
   return null;
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
 }
 
 function escapeHtml(value) {
