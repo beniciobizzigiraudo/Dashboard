@@ -57,6 +57,7 @@ const state = {
   forcedMode: null,
   lastData: null,
   undercutPromptDismissed: false,
+  selectedSeasonYear: null,
 };
 
 function init() {
@@ -125,13 +126,7 @@ function bindEvents() {
 }
 
 function canUseLocalUndercut() {
-  const hostname = window.location.hostname.toLowerCase();
-  return (
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "" ||
-    hostname === "::1"
-  );
+  return isDesktopClient();
 }
 
 function isDesktopClient() {
@@ -185,8 +180,13 @@ function startAutoRefresh() {
 }
 
 function updateRefreshModeLabel() {
+  if (state.selectedSeasonYear) {
+    elements.refreshMode.textContent = `Temporada cargada: ${state.selectedSeasonYear}`;
+    return;
+  }
+
   if (!canUseLocalUndercut()) {
-    elements.refreshMode.textContent = "Deploy remoto: undercut local deshabilitado";
+    elements.refreshMode.textContent = "undercut local solo en escritorio";
     return;
   }
 
@@ -246,9 +246,8 @@ async function loadDashboard(options = {}) {
   }
 
   try {
-    const [liveSession, standingsSession, nextEvent, undercut] =
+    const [standingsSession, nextEvent, undercut] =
       await Promise.all([
-        resolveLiveSession(manualSessionKey),
         resolveStandingsSession(manualSessionKey),
         fetchNextEvent(),
         state.preferUndercut
@@ -258,16 +257,16 @@ async function loadDashboard(options = {}) {
 
     setNextEvent(nextEvent);
     state.lastData = {
-      liveSession,
       standingsSession,
       nextEvent,
       undercut,
     };
 
     if (undercut.connected) {
+      const liveSession = await resolveLiveSession(manualSessionKey);
       const [drivers, championship, teamChampionship, positions, laps] =
         await Promise.all([
-          fetchJson(`${OPENF1_BASE}/drivers?session_key=${liveSession.session_key}`),
+          fetchOptionalJson(`${OPENF1_BASE}/drivers?session_key=${liveSession.session_key}`),
           fetchOptionalJson(
             `${OPENF1_BASE}/championship_drivers?session_key=${liveSession.session_key}`,
           ),
@@ -288,6 +287,7 @@ async function loadDashboard(options = {}) {
 
       state.lastData = {
         ...state.lastData,
+        liveSession,
         liveDrivers: drivers,
         liveChampionship: championship,
         liveTeamChampionship: teamChampionship,
@@ -310,7 +310,7 @@ async function loadDashboard(options = {}) {
       state.mode = "live";
     } else {
       const [drivers, championship, teamChampionship] = await Promise.all([
-        fetchJson(`${OPENF1_BASE}/drivers?session_key=${standingsSession.session_key}`),
+        fetchOptionalJson(`${OPENF1_BASE}/drivers?session_key=${standingsSession.session_key}`),
         fetchOptionalJson(
           `${OPENF1_BASE}/championship_drivers?session_key=${standingsSession.session_key}`,
         ),
@@ -413,6 +413,10 @@ async function resolveStandingsSession(manualSessionKey) {
     return sessions[0];
   }
 
+  if (state.selectedSeasonYear) {
+    return resolveStandingsSessionForYear(state.selectedSeasonYear);
+  }
+
   const nowIso = new Date().toISOString();
   const currentYear = new Date().getUTCFullYear();
   let sessions = await fetchOptionalJson(
@@ -436,7 +440,29 @@ async function resolveStandingsSession(manualSessionKey) {
   return [...eligibleSessions].sort((a, b) => new Date(b.date_start) - new Date(a.date_start))[0];
 }
 
+async function resolveStandingsSessionForYear(year) {
+  let sessions = await fetchOptionalJson(
+    `${OPENF1_BASE}/sessions?session_type=Race&year=${year}`,
+  );
+
+  if (!sessions.length) {
+    sessions = await fetchOptionalJson(`${OPENF1_BASE}/sessions?year=${year}`);
+  }
+
+  const eligibleSessions = sessions.filter((session) => !isSuspendedApril2026Round(session));
+
+  if (!eligibleSessions.length) {
+    throw new Error(`No encontre una sesion de carrera valida para la temporada ${year}.`);
+  }
+
+  return [...eligibleSessions].sort((a, b) => new Date(b.date_start) - new Date(a.date_start))[0];
+}
+
 async function fetchNextEvent() {
+  if (state.selectedSeasonYear) {
+    return null;
+  }
+
   const nowIso = new Date().toISOString();
   const sessions = await fetchOptionalJson(`${OPENF1_BASE}/sessions?date_start>=${nowIso}`);
 
@@ -841,11 +867,13 @@ function renderSession(session, rows, undercut) {
 }
 
 function renderInactiveSession(session, championship, teamChampionship) {
-  elements.sessionName.textContent = "No hay carrera activa";
+  elements.sessionName.textContent = state.selectedSeasonYear
+    ? `Temporada ${state.selectedSeasonYear}`
+    : "No hay carrera activa";
   elements.sessionLocation.textContent = [
     session.meeting_name,
     session.location,
-    "Mostrando campeonato actual",
+    state.selectedSeasonYear ? "Resultados historicos" : "Mostrando campeonato actual",
   ]
     .filter(Boolean)
     .join(" - ");
@@ -874,7 +902,10 @@ function unlockDeveloperConsole() {
   closeDeveloperPrompt();
   elements.devConsole.hidden = false;
   appendConsoleLine("Consola desbloqueada.", "system");
-  appendConsoleLine("Comandos disponibles: switch-race, switch-standings", "system");
+  appendConsoleLine(
+    "Comandos disponibles: switch-race, switch-standings, 2023...anio actual",
+    "system",
+  );
   elements.devConsoleInput.value = "";
   window.setTimeout(() => elements.devConsoleInput.focus(), 0);
 }
@@ -893,6 +924,7 @@ function handleDeveloperCommand() {
   elements.devConsoleInput.value = "";
 
   if (command === "switch-race") {
+    state.selectedSeasonYear = null;
     state.forcedMode = "live";
     appendConsoleLine("Modo carrera forzado.", "system");
     applyForcedModeIfNeeded();
@@ -900,9 +932,26 @@ function handleDeveloperCommand() {
   }
 
   if (command === "switch-standings") {
+    state.selectedSeasonYear = null;
     state.forcedMode = "standings";
     appendConsoleLine("Modo standings forzado.", "system");
     applyForcedModeIfNeeded();
+    return;
+  }
+
+  if (/^\d{4}$/.test(command)) {
+    const year = Number(command);
+    const currentYear = new Date().getUTCFullYear();
+
+    if (year < 2023 || year > currentYear) {
+      appendConsoleLine(`Ano invalido. Usa un ano entre 2023 y ${currentYear}.`, "error");
+      return;
+    }
+
+    state.selectedSeasonYear = year;
+    state.forcedMode = "standings";
+    appendConsoleLine(`Cargando temporada ${year}...`, "system");
+    loadDashboard({ silent: true });
     return;
   }
 
@@ -964,8 +1013,12 @@ function setNextEvent(session) {
 function renderNextEventCountdown() {
   if (!state.nextEvent) {
     elements.nextEventCountdown.textContent = "--:--";
-    elements.nextEventName.textContent = "Sin agenda";
-    elements.nextEventMeta.textContent = "No encontre proximos eventos";
+    elements.nextEventName.textContent = state.selectedSeasonYear
+      ? `Season ${state.selectedSeasonYear}`
+      : "Sin agenda";
+    elements.nextEventMeta.textContent = state.selectedSeasonYear
+      ? "Modo historico: sin proximo evento"
+      : "No encontre proximos eventos";
     return;
   }
 
